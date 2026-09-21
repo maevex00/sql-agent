@@ -331,6 +331,7 @@ sql-agent/
 │   │   ├── query_plan.py         # Pydantic IR
 │   │   ├── date_resolver.py      # relative -> absolute time (pure function)
 │   │   ├── llm_planner.py        # NL -> QueryPlan (structured output)
+│   │   ├── glossary.py           # loads glossary/*.md, answers METRIC_DEFINITION questions
 │   │   └── repair.py             # 3-way repair dispatch
 │   ├── resolver/schema_resolver.py
 │   ├── joinplanner/
@@ -363,7 +364,7 @@ sql-agent/
 | 3 | SQL Compiler: hand-built `QueryPlan`+`JoinPlan` -> SQL, unit tests | deterministic core provably correct | done |
 | 4 | Safety Layer + adversarial unit tests | safety provably correct | done |
 | 5 | LLM Query Planner + Schema Resolver + Repair Loop, CLI end-to-end | first full pipeline milestone | done |
-| 6 | Intent Router + Glossary injection | | not started |
+| 6 | Intent Router + Glossary injection | | done |
 | 7 | Result Analyzer (metrics + chart + LLM summary) | | not started |
 | 8 | Slack Bolt / Socket Mode integration | demoable in Slack | not started |
 | 9 | Eval harness, 80-100 benchmark questions, 5(+) metrics | quantified results | not started |
@@ -389,6 +390,28 @@ Phase 5 implementation notes:
   interaction between each repair type's own budget (`MAX_ATTEMPTS_PER_TYPE = 2`) and the
   shared ceiling (`MAX_TOTAL_REPAIR_CYCLES = 3`).
 
-**Current focus: Phase 6 onward.** No new IR fields, no new algorithms, no scope changes to
+Phase 6 implementation notes:
+
+- `src/router/intent_router.py` — kept deliberately thin, as scoped: one forced tool-use
+  call against a 3-value enum, no repair loop of its own. A malformed classification is
+  treated as `UNSUPPORTED` by the caller rather than retried — this stage is cheap enough
+  that a wrong classification just means a slightly unhelpful answer, not a broken pipeline.
+- `glossary/terms.md` + `glossary/metrics_catalog.md` — generic retail-domain content, not
+  tied to any company. Deliberately documents a real limitation instead of hiding it: the
+  demo schema has no precomputed revenue/line-total column (`order_items` has `unit_price`
+  and `quantity` as separate columns, and `QueryPlan.Aggregation` only wraps a single
+  column), so "revenue" resolves to `SUM(unit_price)` with that caveat spelled out in the
+  glossary itself — better to flag the simplification than let the LLM or a reader assume
+  the number means price × quantity.
+- `src/planner/glossary.py` — `load_glossary()` is plain file concatenation, not retrieval;
+  per the architecture's stated principle, a retrieval layer would be solving a problem this
+  project's small glossary doesn't have. `answer_metric_definition()` grounds its answer in
+  the glossary text only, to avoid the LLM inventing a definition the glossary doesn't
+  contain.
+- `scripts/ask.py` now classifies intent first and only enters the Phase 5 pipeline for
+  `ANALYTICS_QUERY`; `METRIC_DEFINITION` is answered directly from the glossary with no SQL
+  involved, `UNSUPPORTED` is declined immediately.
+
+**Current focus: Phase 7 onward.** No new IR fields, no new algorithms, no scope changes to
 the deterministic core going forward without an explicit new decision — extend by adding
-the next phase's module, not by reopening 0-5.
+the next phase's module, not by reopening 0-6.

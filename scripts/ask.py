@@ -1,17 +1,18 @@
 #!/usr/bin/env python
 """CLI: ask a natural-language analytics question, get compiled + guarded SQL.
 
-This is the Phase 5 milestone: the full pipeline (LLM Query Planner -> Schema
-Resolver -> Repair Loop -> JOIN Planner -> Compiler -> Safety Layer) running
-end-to-end, with no Slack integration yet. It prints SQL; it does not execute
-it against a database -- that needs `docker compose up` (Postgres) and the
-DB execution layer, which are later-phase work per ARCHITECTURE.md.
+This is the Phase 5+6 milestone: Intent Router -> Glossary Layer -> LLM Query
+Planner -> Schema Resolver -> Repair Loop -> JOIN Planner -> Compiler ->
+Safety Layer, running end-to-end, with no Slack integration yet. For
+ANALYTICS_QUERY it prints SQL; it does not execute it against a database --
+that needs `docker compose up` (Postgres) and the DB execution layer, which
+are later-phase work per ARCHITECTURE.md.
 
 Requires ANTHROPIC_API_KEY. Not covered by the test suite (which tests
-run_pipeline's orchestration with fake planner/repair functions, and every
-deterministic stage independently -- see tests/test_repair.py and friends);
-this script is the thin, unavoidably-untestable-without-a-key glue around
-real LLM calls.
+run_pipeline's and the intent router's orchestration/parsing with fake
+functions or hand-built inputs -- see tests/test_repair.py,
+tests/test_intent_router.py, and friends); this script is the thin,
+unavoidably-untestable-without-a-key glue around real LLM calls.
 """
 from __future__ import annotations
 
@@ -25,9 +26,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from joinplanner.sql_builder import SchemaCatalog  # noqa: E402
 from planner import llm_planner  # noqa: E402
+from planner.glossary import answer_metric_definition, load_glossary  # noqa: E402
 from planner.query_plan import QueryPlan  # noqa: E402
 from planner.repair import run_pipeline  # noqa: E402
 from resolver.schema_resolver import FieldResolution  # noqa: E402
+from router.intent_router import classify_intent  # noqa: E402
 
 CORRELATION_PATH = Path(__file__).parent.parent / "schema" / "correlation.json"
 
@@ -45,23 +48,24 @@ def _call_tool(client, system_prompt: str, user_content: str, model: str = "clau
     return tool_use.input
 
 
-def make_llm_functions(schema: SchemaCatalog):
+def make_llm_functions(schema: SchemaCatalog, glossary_text: str):
     import anthropic
 
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     catalog_text = ", ".join(sorted(schema.all_fields()))
+    system_prompt = llm_planner.build_system_prompt(glossary_text)
 
     def planner_fn(question: str) -> dict:
         return _call_tool(
             client,
-            llm_planner.SYSTEM_PROMPT,
+            system_prompt,
             f"Available fields: {catalog_text}\n\nQuestion: {question}",
         )
 
     def structural_repair_fn(question: str, bad_raw: dict, error_msg: str) -> dict:
         return _call_tool(
             client,
-            llm_planner.SYSTEM_PROMPT,
+            system_prompt,
             f"Your previous submit_query_plan call was invalid.\n"
             f"Error: {error_msg}\nPrevious output: {json.dumps(bad_raw)}\n"
             f"Available fields: {catalog_text}\nQuestion: {question}\n"
@@ -86,7 +90,7 @@ def make_llm_functions(schema: SchemaCatalog):
     def semantic_replan_fn(question: str, prior_plan: QueryPlan, reason: str) -> dict:
         return _call_tool(
             client,
-            llm_planner.SYSTEM_PROMPT,
+            system_prompt,
             f"Your previous query plan could not be executed: {reason}\n"
             f"Previous plan: {prior_plan.model_dump_json()}\n"
             f"Available fields: {catalog_text}\nQuestion: {question}\n"
@@ -113,7 +117,23 @@ def main() -> None:
         raise SystemExit(1)
 
     schema = SchemaCatalog(CORRELATION_PATH)
-    planner_fn, structural_repair_fn, schema_resolution_repair_fn, semantic_replan_fn = make_llm_functions(schema)
+    glossary_text = load_glossary()
+
+    classification = classify_intent(args.question)
+    print(f"--- intent: {classification.intent} ---", file=sys.stderr)
+
+    if classification.intent == "UNSUPPORTED":
+        print("This agent only answers analytics questions and metric definitions over the")
+        print("demo dataset -- it can't help with that, and it's read-only regardless.")
+        raise SystemExit(1)
+
+    if classification.intent == "METRIC_DEFINITION":
+        print(answer_metric_definition(args.question, glossary_text))
+        return
+
+    planner_fn, structural_repair_fn, schema_resolution_repair_fn, semantic_replan_fn = make_llm_functions(
+        schema, glossary_text
+    )
 
     outcome = run_pipeline(
         args.question, schema, planner_fn, structural_repair_fn, schema_resolution_repair_fn, semantic_replan_fn

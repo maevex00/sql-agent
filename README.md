@@ -14,7 +14,7 @@ development, is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Status
 
-Phases 0-5 are implemented and unit-tested (71 tests, `make test`, no database or API key
+Phases 0-6 are implemented and unit-tested (80 tests, `make test`, no database or API key
 required to run them). **No Slack integration yet.**
 
 - [schema/correlation.json](schema/correlation.json) — 13-table demo schema (generic
@@ -37,11 +37,17 @@ required to run them). **No Slack integration yet.**
 - [src/planner/repair.py](src/planner/repair.py) — the three-mechanism Repair Loop
   orchestrator (structural / schema-resolution / semantic-replan), tested with injected fake
   LLM callables.
-- [scripts/ask.py](scripts/ask.py) — CLI: ask a question, get compiled + guarded SQL.
-  Requires `ANTHROPIC_API_KEY`; not exercised by the test suite for that reason.
+- [src/router/intent_router.py](src/router/intent_router.py) — 3-way classification
+  (`ANALYTICS_QUERY` / `METRIC_DEFINITION` / `UNSUPPORTED`) gating everything downstream.
+- [glossary/](glossary) + [src/planner/glossary.py](src/planner/glossary.py) — business
+  terminology and metric definitions injected into the LLM's prompt; `METRIC_DEFINITION`
+  questions are answered directly from this, with no SQL involved.
+- [scripts/ask.py](scripts/ask.py) — CLI: ask a question, get an intent-routed answer —
+  compiled + guarded SQL for analytics questions, a grounded definition for metric
+  questions. Requires `ANTHROPIC_API_KEY`; not exercised by the test suite for that reason.
 
-Not yet built: Intent Router, Glossary injection, Result Analyzer, Slack integration, Eval
-harness. See ARCHITECTURE.md's roadmap for phases 6-10.
+Not yet built: Result Analyzer, Slack integration, Eval harness. See ARCHITECTURE.md's
+roadmap for phases 7-10.
 
 ## Quick start (deterministic core + repair-loop tests, no DB or API key needed)
 

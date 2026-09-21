@@ -45,6 +45,16 @@ def build_tool_schema() -> dict[str, Any]:
     }
 
 
+def build_system_prompt(glossary_text: str = "") -> str:
+    """SYSTEM_PROMPT, optionally extended with the Glossary Layer's content
+    (planner/glossary.py). Kept as a separate function rather than baked
+    into `plan_query` so it's easy to inspect/test what the LLM actually sees.
+    """
+    if not glossary_text:
+        return SYSTEM_PROMPT
+    return f"{SYSTEM_PROMPT}\n\nBusiness terminology and standard metric definitions:\n\n{glossary_text}"
+
+
 def parse_llm_output(raw_tool_input: dict[str, Any]) -> QueryPlan:
     """Pure function: raw tool-call JSON -> validated QueryPlan.
 
@@ -58,6 +68,7 @@ def plan_query(
     question: str,
     field_catalog: list[str],
     *,
+    glossary_text: str = "",
     model: str = "claude-sonnet-5",
     api_key: str | None = None,
 ) -> QueryPlan:
@@ -74,7 +85,7 @@ def plan_query(
     response = client.messages.create(
         model=model,
         max_tokens=1024,
-        system=SYSTEM_PROMPT,
+        system=build_system_prompt(glossary_text),
         tools=[build_tool_schema()],
         tool_choice={"type": "tool", "name": "submit_query_plan"},
         messages=[
