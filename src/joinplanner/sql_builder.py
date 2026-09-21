@@ -1,11 +1,10 @@
 """Anchor/table-cover selection (conditional greedy) + JOIN skeleton assembly.
 
 See ARCHITECTURE.md, "Graph JOIN Planner": the greedy set-cover step only runs
-when a field set could plausibly be satisfied by 3+ distinct candidate tables
-(the same column name -- most often a foreign key -- can legitimately live on
-more than one table, e.g. `region_id` on both `customers` and `regions`).
-Below that threshold there is no real combinatorial choice to make, so BFS
-alone determines the join.
+when at least one requested field is owned by more than one table (the same
+column name -- most often a foreign key -- can legitimately live on more than
+one table, e.g. `region_id` on both `customers` and `regions`). When no field
+is ambiguous there is nothing to optimize, so BFS alone determines the join.
 """
 from __future__ import annotations
 
@@ -31,6 +30,11 @@ class SchemaCatalog:
 
     def tables_for_field(self, field: str) -> list[str]:
         return self._field_to_tables.get(field, [])
+
+    def all_fields(self) -> list[str]:
+        """Every known field name across every table, for the LLM's field catalog
+        prompt and the Schema Resolver's fuzzy-match candidate pool."""
+        return list(self._field_to_tables.keys())
 
     def fields_of(self, table: str) -> list[str]:
         return self.table_column.get(table, [])

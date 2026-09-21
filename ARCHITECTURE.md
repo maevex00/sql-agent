@@ -346,6 +346,8 @@ sql-agent/
 ├── eval/
 │   ├── benchmark.jsonl
 │   └── run_eval.py
+├── scripts/
+│   └── ask.py                    # CLI: NL question -> guarded SQL, full Phase 5 pipeline
 └── tests/
 ```
 
@@ -353,20 +355,40 @@ sql-agent/
 
 ## Roadmap
 
-| Phase | Content | Milestone |
-|---|---|---|
-| 0 | Scaffold, `QueryPlan` finalized | this document + repo skeleton |
-| 1 | Multi-hop schema, `correlation.json`, `ddl_postgres.sql`, Faker seed | data available |
-| 2 | Join engine: symmetric BFS, explicit table order, `JoinPlan` output | unit-tested, no LLM |
-| 3 | SQL Compiler: hand-built `QueryPlan`+`JoinPlan` -> SQL, unit tests | deterministic core provably correct |
-| 4 | Safety Layer + adversarial unit tests | safety provably correct |
-| 5 | LLM Query Planner + Schema Resolver + Repair Loop, CLI end-to-end | first full pipeline milestone |
-| 6 | Intent Router + Glossary injection | |
-| 7 | Result Analyzer (metrics + chart + LLM summary) | |
-| 8 | Slack Bolt / Socket Mode integration | demoable in Slack |
-| 9 | Eval harness, 80-100 benchmark questions, 5(+) metrics | quantified results |
-| 10 | README polish, `docker compose up` one-command demo | portfolio-ready |
+| Phase | Content | Milestone | Status |
+|---|---|---|---|
+| 0 | Scaffold, `QueryPlan` finalized | this document + repo skeleton | done |
+| 1 | Multi-hop schema, `correlation.json`, `ddl_postgres.sql`, Faker seed | data available | done |
+| 2 | Join engine: symmetric BFS, explicit table order, `JoinPlan` output | unit-tested, no LLM | done |
+| 3 | SQL Compiler: hand-built `QueryPlan`+`JoinPlan` -> SQL, unit tests | deterministic core provably correct | done |
+| 4 | Safety Layer + adversarial unit tests | safety provably correct | done |
+| 5 | LLM Query Planner + Schema Resolver + Repair Loop, CLI end-to-end | first full pipeline milestone | done |
+| 6 | Intent Router + Glossary injection | | not started |
+| 7 | Result Analyzer (metrics + chart + LLM summary) | | not started |
+| 8 | Slack Bolt / Socket Mode integration | demoable in Slack | not started |
+| 9 | Eval harness, 80-100 benchmark questions, 5(+) metrics | quantified results | not started |
+| 10 | README polish, `docker compose up` one-command demo | portfolio-ready | not started |
 
-**Current focus: Phases 0-4.** No new IR fields, no new algorithms, no new integrations
-until the deterministic core (join planning -> compilation -> safety) is implemented and
-unit-tested end-to-end without any LLM in the loop.
+Phase 5 implementation notes:
+
+- `src/planner/llm_planner.py` — `parse_llm_output` (pure, tested) validates raw tool-call
+  JSON against `QueryPlan`; `plan_query` wraps the real Anthropic call and is not exercised
+  by the test suite (no API key in the dev/test environment) — see `scripts/ask.py`, the
+  actual end-to-end entry point, for the live wiring.
+- `src/resolver/schema_resolver.py` — field resolution turned out to need more than a plain
+  `difflib.get_close_matches` cutoff: this schema has many `*_name` columns
+  (`region_name`, `product_name`, `promotion_name`, ...), so a misspelled `"prodct_name"`
+  scored above the cutoff against **both** `product_name` and `promotion_name`. Fixed by
+  adding a relative-margin check (`FUZZY_MARGIN`) — the top match must beat the runner-up by
+  a clear margin to be accepted as a confident single match; a near-tie is now correctly
+  reported as ambiguous (both candidates, `resolved=None`) instead of the resolver guessing.
+  Caught by tests/test_schema_resolver.py during development.
+- `src/planner/repair.py` — `run_pipeline` is the orchestrator described in "Repair Loop —
+  three distinct mechanisms" above, fully unit-tested (tests/test_repair.py) against
+  injected fake planner/repair callables, including a test that specifically exercises the
+  interaction between each repair type's own budget (`MAX_ATTEMPTS_PER_TYPE = 2`) and the
+  shared ceiling (`MAX_TOTAL_REPAIR_CYCLES = 3`).
+
+**Current focus: Phase 6 onward.** No new IR fields, no new algorithms, no scope changes to
+the deterministic core going forward without an explicit new decision — extend by adding
+the next phase's module, not by reopening 0-5.

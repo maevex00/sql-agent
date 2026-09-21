@@ -9,13 +9,13 @@ fields, finding a correct JOIN path through the schema graph, compiling SQL, and
 read-only/limit/timeout safety — is deterministic and unit-tested independently of any LLM
 call.
 
-Full design rationale, including two real bugs the test suite caught and fixed during
+Full design rationale, including several real bugs the test suite caught and fixed during
 development, is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Status
 
-Phases 0-4 (deterministic core) are implemented and unit-tested with **no LLM and no Slack
-in the loop yet**:
+Phases 0-5 are implemented and unit-tested (71 tests, `make test`, no database or API key
+required to run them). **No Slack integration yet.**
 
 - [schema/correlation.json](schema/correlation.json) — 13-table demo schema (generic
   retail/e-commerce domain, not tied to any company), with intentional multi-hop chains and
@@ -29,17 +29,33 @@ in the loop yet**:
   `sqlglot` AST → SQL text, with no string-formatting of any derived value.
 - [src/safety/guard.py](src/safety/guard.py) — AST-level read-only enforcement + LIMIT
   clamping, independent of the Postgres read-only role that is the second line of defense.
-- 48 unit tests, `make test`, all passing without a database connection.
+- [src/resolver/schema_resolver.py](src/resolver/schema_resolver.py) — margin-based fuzzy
+  field-name resolution against the schema catalog.
+- [src/planner/llm_planner.py](src/planner/llm_planner.py) — NL → `QueryPlan` via a forced
+  Anthropic tool-use call; the parsing/validation half is unit-tested independently of the
+  network call.
+- [src/planner/repair.py](src/planner/repair.py) — the three-mechanism Repair Loop
+  orchestrator (structural / schema-resolution / semantic-replan), tested with injected fake
+  LLM callables.
+- [scripts/ask.py](scripts/ask.py) — CLI: ask a question, get compiled + guarded SQL.
+  Requires `ANTHROPIC_API_KEY`; not exercised by the test suite for that reason.
 
-Not yet built: LLM Query Planner, Schema Resolver + Repair Loop, Intent Router, Slack
-integration, Result Analyzer, Eval harness. See ARCHITECTURE.md's roadmap for phases 5-10.
+Not yet built: Intent Router, Glossary injection, Result Analyzer, Slack integration, Eval
+harness. See ARCHITECTURE.md's roadmap for phases 6-10.
 
-## Quick start (deterministic core only, no DB needed)
+## Quick start (deterministic core + repair-loop tests, no DB or API key needed)
 
 ```bash
 python -m venv .venv && source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 pip install -e ".[dev]"
 pytest -v
+```
+
+## Ask a real question (requires an Anthropic API key)
+
+```bash
+export ANTHROPIC_API_KEY=sk-...
+python scripts/ask.py "revenue by region for completed orders last quarter"
 ```
 
 ## Full stack (requires Docker)
