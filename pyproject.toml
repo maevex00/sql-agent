@@ -1,0 +1,24 @@
+[project]
+name = "sql-agent"
+version = "0.1.0"
+description = "Slack-integrated analytics agent: LLM query planning + deterministic schema-aware SQL execution"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.6",
+    "sqlglot>=25.0",
+    "psycopg[binary]>=3.1",
+    "slack-bolt>=1.18",
+    "anthropic>=0.34",
+    "python-dotenv>=1.0",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "faker>=24.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

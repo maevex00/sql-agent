@@ -1,0 +1,67 @@
+{
+  "tables": [
+    "regions",
+    "categories",
+    "suppliers",
+    "promotions",
+    "warehouses",
+    "sales_reps",
+    "customers",
+    "products",
+    "inventory",
+    "sales_targets",
+    "orders",
+    "reviews",
+    "order_items"
+  ],
+  "table_column": {
+    "regions": ["region_id", "region_name"],
+    "categories": ["category_id", "category_name"],
+    "suppliers": ["supplier_id", "supplier_name", "country"],
+    "promotions": ["promotion_id", "promotion_name", "discount_pct"],
+    "warehouses": ["warehouse_id", "warehouse_name", "region_id"],
+    "sales_reps": ["rep_id", "rep_name", "region_id"],
+    "customers": ["customer_id", "customer_name", "region_id", "signup_date"],
+    "products": ["product_id", "product_name", "category_id", "supplier_id", "unit_cost"],
+    "inventory": ["inventory_id", "product_id", "warehouse_id", "stock_qty"],
+    "sales_targets": ["target_id", "region_id", "period", "target_amount"],
+    "orders": ["order_id", "customer_id", "rep_id", "order_date", "status"],
+    "reviews": ["review_id", "product_id", "customer_id", "rating", "review_date"],
+    "order_items": ["order_item_id", "order_id", "product_id", "promotion_id", "quantity", "unit_price"]
+  },
+  "nextarc": {
+    "customers": [
+      {"table_name": "regions", "next_key": "region_id", "key": "region_id", "other_where": {}}
+    ],
+    "sales_reps": [
+      {"table_name": "regions", "next_key": "region_id", "key": "region_id", "other_where": {}}
+    ],
+    "warehouses": [
+      {"table_name": "regions", "next_key": "region_id", "key": "region_id", "other_where": {}}
+    ],
+    "orders": [
+      {"table_name": "customers", "next_key": "customer_id", "key": "customer_id", "other_where": {}},
+      {"table_name": "sales_reps", "next_key": "rep_id", "key": "rep_id", "other_where": {}}
+    ],
+    "products": [
+      {"table_name": "categories", "next_key": "category_id", "key": "category_id", "other_where": {}},
+      {"table_name": "suppliers", "next_key": "supplier_id", "key": "supplier_id", "other_where": {}}
+    ],
+    "inventory": [
+      {"table_name": "products", "next_key": "product_id", "key": "product_id", "other_where": {}},
+      {"table_name": "warehouses", "next_key": "warehouse_id", "key": "warehouse_id", "other_where": {}}
+    ],
+    "sales_targets": [
+      {"table_name": "regions", "next_key": "region_id", "key": "region_id", "other_where": {}}
+    ],
+    "order_items": [
+      {"table_name": "orders", "next_key": "order_id", "key": "order_id", "other_where": {}},
+      {"table_name": "products", "next_key": "product_id", "key": "product_id", "other_where": {}},
+      {"table_name": "promotions", "next_key": "promotion_id", "key": "promotion_id", "other_where": {}}
+    ],
+    "reviews": [
+      {"table_name": "products", "next_key": "product_id", "key": "product_id", "other_where": {}},
+      {"table_name": "customers", "next_key": "customer_id", "key": "customer_id", "other_where": {}}
+    ]
+  }
+}
