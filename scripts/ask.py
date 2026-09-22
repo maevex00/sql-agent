@@ -1,18 +1,20 @@
 #!/usr/bin/env python
-"""CLI: ask a natural-language analytics question, get compiled + guarded SQL.
+"""CLI: ask a natural-language analytics question, get an answer.
 
-This is the Phase 5+6 milestone: Intent Router -> Glossary Layer -> LLM Query
+This is the Phase 5-7 milestone: Intent Router -> Glossary Layer -> LLM Query
 Planner -> Schema Resolver -> Repair Loop -> JOIN Planner -> Compiler ->
-Safety Layer, running end-to-end, with no Slack integration yet. For
-ANALYTICS_QUERY it prints SQL; it does not execute it against a database --
-that needs `docker compose up` (Postgres) and the DB execution layer, which
-are later-phase work per ARCHITECTURE.md.
+Safety Layer -> (if DATABASE_URL is reachable) Postgres execution -> Result
+Analyzer, running end-to-end. No Slack integration yet.
 
-Requires ANTHROPIC_API_KEY. Not covered by the test suite (which tests
-run_pipeline's and the intent router's orchestration/parsing with fake
-functions or hand-built inputs -- see tests/test_repair.py,
-tests/test_intent_router.py, and friends); this script is the thin,
-unavoidably-untestable-without-a-key glue around real LLM calls.
+If DATABASE_URL is not set or the connection fails, this falls back to
+printing the compiled SQL without executing it -- the deterministic pipeline
+up to and including the safety layer is still fully exercised either way.
+
+Requires ANTHROPIC_API_KEY. Not covered by the test suite (which tests each
+stage's orchestration/parsing with fake functions or hand-built inputs --
+see tests/test_repair.py, tests/test_intent_router.py, tests/test_analyzer.py,
+and friends); this script is the thin, unavoidably-untestable-without-
+credentials glue around real LLM and DB calls.
 """
 from __future__ import annotations
 
@@ -29,6 +31,7 @@ from planner import llm_planner  # noqa: E402
 from planner.glossary import answer_metric_definition, load_glossary  # noqa: E402
 from planner.query_plan import QueryPlan  # noqa: E402
 from planner.repair import run_pipeline  # noqa: E402
+from report.analyzer import analyze  # noqa: E402
 from resolver.schema_resolver import FieldResolution  # noqa: E402
 from router.intent_router import classify_intent  # noqa: E402
 
@@ -148,7 +151,24 @@ def main() -> None:
         print(f"FAILED: {outcome.error}", file=sys.stderr)
         raise SystemExit(1)
 
-    print(outcome.sql)
+    if "DATABASE_URL" not in os.environ:
+        print("--- DATABASE_URL not set, printing SQL without executing it ---", file=sys.stderr)
+        print(outcome.sql)
+        return
+
+    from db.postgres import execute
+
+    try:
+        result = execute(outcome.sql)
+    except Exception as e:  # noqa: BLE001 -- surfacing any connection/execution failure, not handling it
+        print(f"--- could not execute against Postgres ({e}); printing SQL instead ---", file=sys.stderr)
+        print(outcome.sql)
+        return
+
+    analysis = analyze(args.question, outcome.query_plan, result.columns, result.rows)
+    print(analysis.summary)
+    if analysis.chart_path:
+        print(f"(chart saved to {analysis.chart_path})", file=sys.stderr)
 
 
 if __name__ == "__main__":

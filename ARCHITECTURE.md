@@ -365,7 +365,7 @@ sql-agent/
 | 4 | Safety Layer + adversarial unit tests | safety provably correct | done |
 | 5 | LLM Query Planner + Schema Resolver + Repair Loop, CLI end-to-end | first full pipeline milestone | done |
 | 6 | Intent Router + Glossary injection | | done |
-| 7 | Result Analyzer (metrics + chart + LLM summary) | | not started |
+| 7 | Result Analyzer (metrics + chart + LLM summary) + Postgres execution layer | | done |
 | 8 | Slack Bolt / Socket Mode integration | demoable in Slack | not started |
 | 9 | Eval harness, 80-100 benchmark questions, 5(+) metrics | quantified results | not started |
 | 10 | README polish, `docker compose up` one-command demo | portfolio-ready | not started |
@@ -412,6 +412,29 @@ Phase 6 implementation notes:
   `ANALYTICS_QUERY`; `METRIC_DEFINITION` is answered directly from the glossary with no SQL
   involved, `UNSUPPORTED` is declined immediately.
 
-**Current focus: Phase 7 onward.** No new IR fields, no new algorithms, no scope changes to
+Phase 7 implementation notes:
+
+- `src/db/postgres.py` — thin execution wrapper. It never accepts raw user- or LLM-provided
+  SQL; its only input contract is "whatever `safety.guard.check_read_only()` already
+  approved." Not exercised by the test suite (needs a live Postgres connection); every other
+  Phase 7 module is designed so the DB is the *only* untestable piece of this stage.
+- `src/report/analyzer.py` — the LLM's footprint here is as narrow as everywhere else in the
+  pipeline: `summarize_result()` is given the question, the `QueryPlan` (for context on what
+  was aggregated/grouped), and the result rows -- **never the SQL text**. This keeps the
+  "LLM understands intent, deterministic code decides execution" boundary intact through the
+  *last* stage too, not just query generation. `describe_result_shape`, `is_chartable`, and
+  `render_chart` are pure/local (real matplotlib calls, no network) and fully unit-tested,
+  including `analyze(..., use_llm_summary=False)`, which exercises the whole orchestration
+  (headline + chart decision + fallback summary) without any live call at all.
+- Chart scope is deliberately narrow: only a single dimension + one or more metrics, capped
+  at 25 rows, renders as a grouped bar chart. Anything else (no dimension, multiple
+  dimensions, a large result set) is left as a table rather than guessing at a chart type
+  that would need real chart-selection logic this project doesn't need yet.
+- `scripts/ask.py` now executes `ANALYTICS_QUERY` SQL against Postgres when `DATABASE_URL`
+  is set and reachable, and analyzes the result; otherwise it falls back to printing the
+  compiled SQL (the Phase 5 behavior), so the CLI still works end-to-end for demoing the
+  deterministic core without Docker running.
+
+**Current focus: Phase 8 onward.** No new IR fields, no new algorithms, no scope changes to
 the deterministic core going forward without an explicit new decision — extend by adding
-the next phase's module, not by reopening 0-6.
+the next phase's module, not by reopening 0-7.

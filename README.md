@@ -14,7 +14,7 @@ development, is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Status
 
-Phases 0-6 are implemented and unit-tested (80 tests, `make test`, no database or API key
+Phases 0-7 are implemented and unit-tested (91 tests, `make test`, no database or API key
 required to run them). **No Slack integration yet.**
 
 - [schema/correlation.json](schema/correlation.json) — 13-table demo schema (generic
@@ -42,12 +42,20 @@ required to run them). **No Slack integration yet.**
 - [glossary/](glossary) + [src/planner/glossary.py](src/planner/glossary.py) — business
   terminology and metric definitions injected into the LLM's prompt; `METRIC_DEFINITION`
   questions are answered directly from this, with no SQL involved.
-- [scripts/ask.py](scripts/ask.py) — CLI: ask a question, get an intent-routed answer —
-  compiled + guarded SQL for analytics questions, a grounded definition for metric
-  questions. Requires `ANTHROPIC_API_KEY`; not exercised by the test suite for that reason.
+- [src/db/postgres.py](src/db/postgres.py) — executes already-guarded SQL against the
+  read-only role and fetches results; never accepts raw user/LLM SQL as input.
+- [src/report/analyzer.py](src/report/analyzer.py) — headline + optional bar chart
+  (matplotlib) + LLM prose summary. The summary call is grounded in the question, the
+  `QueryPlan`, and result rows only — never the SQL text, keeping the LLM's footprint
+  narrow all the way to the last stage.
+- [scripts/ask.py](scripts/ask.py) — CLI: ask a question, get an intent-routed answer.
+  Analytics questions run the full pipeline through to a result summary when
+  `DATABASE_URL` is reachable (falling back to printing compiled SQL otherwise); metric
+  questions get a grounded definition. Requires `ANTHROPIC_API_KEY`; not exercised by the
+  test suite for that reason.
 
-Not yet built: Result Analyzer, Slack integration, Eval harness. See ARCHITECTURE.md's
-roadmap for phases 7-10.
+Not yet built: Slack integration, Eval harness. See ARCHITECTURE.md's roadmap for phases
+8-10.
 
 ## Quick start (deterministic core + repair-loop tests, no DB or API key needed)
 
