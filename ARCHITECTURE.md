@@ -510,7 +510,9 @@ Phase 9 implementation notes:
 
 Phase 10 implementation notes:
 
-- `LICENSE` (MIT) added.
+- `LICENSE` (MIT) was added, then removed at the user's decision -- the repo is private and
+  stays under default "all rights reserved" until/unless it's made public for portfolio use,
+  at which point adding a license back is a one-line decision, not a design one.
 - `Makefile`'s `setup` target changed from `docker compose up -d` to `docker compose up -d
   --wait`: the plain form returns as soon as the container *starts*, not once Postgres is
   actually accepting connections, so `python data/seed.py` immediately after it was a real

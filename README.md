@@ -131,7 +131,3 @@ python eval/run_eval.py
 make setup   # docker compose up (Postgres + read-only role) + seed synthetic data
 make test
 ```
-
-## License
-
-[MIT](LICENSE)
