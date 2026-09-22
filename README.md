@@ -14,8 +14,9 @@ development, is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Status
 
-Phases 0-7 are implemented and unit-tested (91 tests, `make test`, no database or API key
-required to run them). **No Slack integration yet.**
+Phases 0-8 are code-complete. Phases 0-7 are unit-tested (97 tests, `make test`, no database
+or API key required to run them). Phase 8 (Slack) is **honestly unverified** — this dev
+environment has no Slack app/workspace to test against; see the caveat below.
 
 - [schema/correlation.json](schema/correlation.json) — 13-table demo schema (generic
   retail/e-commerce domain, not tied to any company), with intentional multi-hop chains and
@@ -48,14 +49,19 @@ required to run them). **No Slack integration yet.**
   (matplotlib) + LLM prose summary. The summary call is grounded in the question, the
   `QueryPlan`, and result rows only — never the SQL text, keeping the LLM's footprint
   narrow all the way to the last stage.
-- [scripts/ask.py](scripts/ask.py) — CLI: ask a question, get an intent-routed answer.
-  Analytics questions run the full pipeline through to a result summary when
-  `DATABASE_URL` is reachable (falling back to printing compiled SQL otherwise); metric
-  questions get a grounded definition. Requires `ANTHROPIC_API_KEY`; not exercised by the
-  test suite for that reason.
+- [src/service.py](src/service.py) — the shared orchestration both front-ends call:
+  `answer_question()` ties Intent Router → Glossary → LLM Query Planner → Repair Loop →
+  Postgres execution → Result Analyzer into one function.
+- [scripts/ask.py](scripts/ask.py) — CLI front-end for `service.answer_question()`.
+  Requires `ANTHROPIC_API_KEY`; not exercised by the test suite for that reason.
+- [src/slack/](src/slack) — Bolt/Socket Mode front-end for the same `answer_question()`.
+  `formatting.py` (Block Kit construction, mention stripping) is pure and tested;
+  `app.py`'s actual Slack wiring is **not verified** — `slack_bolt.App()` makes a live call
+  to Slack's `auth.test` endpoint just to construct the object, so there was no way to
+  smoke-test it without a real bot token. See ARCHITECTURE.md's Phase 8 notes for what
+  that means concretely and what's needed to actually run it.
 
-Not yet built: Slack integration, Eval harness. See ARCHITECTURE.md's roadmap for phases
-8-10.
+Not yet built: Eval harness. See ARCHITECTURE.md's roadmap for phases 9-10.
 
 ## Quick start (deterministic core + repair-loop tests, no DB or API key needed)
 
@@ -70,6 +76,22 @@ pytest -v
 ```bash
 export ANTHROPIC_API_KEY=sk-...
 python scripts/ask.py "revenue by region for completed orders last quarter"
+```
+
+## Run the Slack bot (requires a Slack app + an Anthropic API key)
+
+Unverified in this dev environment (no Slack credentials available) — see ARCHITECTURE.md's
+Phase 8 notes.
+
+1. Create a Slack app at [api.slack.com/apps](https://api.slack.com/apps) in a workspace you
+   control. Enable **Socket Mode** (no public URL needed) and generate an app-level token
+   with the `connections:write` scope → `SLACK_APP_TOKEN`.
+2. Add bot token scopes `chat:write`, `app_mentions:read`, `im:history`, `files:write`,
+   install the app, and copy the bot token → `SLACK_BOT_TOKEN`.
+3. `export SLACK_BOT_TOKEN=... SLACK_APP_TOKEN=... ANTHROPIC_API_KEY=...` and run:
+
+```bash
+python src/slack/app.py
 ```
 
 ## Full stack (requires Docker)

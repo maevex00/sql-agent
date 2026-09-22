@@ -343,12 +343,15 @@ sql-agent/
 │   ├── db/postgres.py
 │   ├── router/intent_router.py   # 3-way: ANALYTICS_QUERY / METRIC_DEFINITION / UNSUPPORTED
 │   ├── report/analyzer.py
-│   └── slack/app.py              # Bolt, Socket Mode
+│   ├── service.py                # shared orchestration: both scripts/ask.py and slack/app.py call this
+│   └── slack/
+│       ├── formatting.py         # pure Block Kit construction + mention stripping, tested
+│       └── app.py                # Bolt, Socket Mode -- live Slack wiring, unverified (see notes)
 ├── eval/
 │   ├── benchmark.jsonl
 │   └── run_eval.py
 ├── scripts/
-│   └── ask.py                    # CLI: NL question -> guarded SQL, full Phase 5 pipeline
+│   └── ask.py                    # CLI front-end for service.answer_question()
 └── tests/
 ```
 
@@ -366,7 +369,7 @@ sql-agent/
 | 5 | LLM Query Planner + Schema Resolver + Repair Loop, CLI end-to-end | first full pipeline milestone | done |
 | 6 | Intent Router + Glossary injection | | done |
 | 7 | Result Analyzer (metrics + chart + LLM summary) + Postgres execution layer | | done |
-| 8 | Slack Bolt / Socket Mode integration | demoable in Slack | not started |
+| 8 | Slack Bolt / Socket Mode integration | demoable in Slack | code complete, unverified (no Slack credentials in dev environment) |
 | 9 | Eval harness, 80-100 benchmark questions, 5(+) metrics | quantified results | not started |
 | 10 | README polish, `docker compose up` one-command demo | portfolio-ready | not started |
 
@@ -435,6 +438,35 @@ Phase 7 implementation notes:
   compiled SQL (the Phase 5 behavior), so the CLI still works end-to-end for demoing the
   deterministic core without Docker running.
 
-**Current focus: Phase 8 onward.** No new IR fields, no new algorithms, no scope changes to
+Phase 8 implementation notes:
+
+- `src/service.py` was pulled out of `scripts/ask.py` in this phase, not before, because
+  that's when a second consumer (`slack/app.py`) of the exact same orchestration
+  (Intent Router -> Glossary -> LLM Query Planner -> Repair Loop -> DB execution -> Result
+  Analyzer) actually showed up. Factoring it out earlier, before a second caller existed,
+  would have been speculative; `scripts/ask.py` is now a thin wrapper that only formats
+  `AnswerOutcome` for a terminal.
+- `src/slack/formatting.py` is deliberately separated from `src/slack/app.py`: everything
+  about *what* gets said (Block Kit construction, stripping the `<@U123ABC>` mention token
+  from `app_mention` events) is a pure function, tested in tests/test_slack_formatting.py.
+  `app.py` is thin glue that only decides *when* to call them and how to talk to Slack.
+- **This phase is honestly unverified**, more so than any earlier one, and worth stating
+  plainly rather than glossing over: this development environment has no Slack app or
+  workspace, so `src/slack/app.py` has never actually run. It was caught concretely while
+  building this phase -- `slack_bolt.App(token=...)` makes a **live network call to Slack's
+  `auth.test` endpoint at construction time** to validate the token, so even instantiating
+  the `App` object (not starting Socket Mode, just constructing it) requires a real,
+  currently-valid bot token. There is no way to smoke-test this module beyond what its pure
+  helpers (`strip_mention`, `format_outcome_blocks`) already cover. To actually run it: create
+  a Slack app at api.slack.com, enable Socket Mode, grant it `chat:write`,
+  `app_mentions:read`, `im:history`, `files:write`, set `SLACK_BOT_TOKEN` /
+  `SLACK_APP_TOKEN` / `ANTHROPIC_API_KEY`, and run `python src/slack/app.py`.
+- Conversation "context" is thread-based reply only (`thread_ts`), not multi-turn `QueryPlan`
+  refinement -- the IR and repair loop have no concept of "adjust the previous query," and
+  adding one now would be new scope, not this phase's job. A channel can hold multiple
+  concurrent question threads without them interleaving; a single thread does not remember
+  earlier questions in it.
+
+**Current focus: Phase 9 onward.** No new IR fields, no new algorithms, no scope changes to
 the deterministic core going forward without an explicit new decision — extend by adding
-the next phase's module, not by reopening 0-7.
+the next phase's module, not by reopening 0-8.
