@@ -6,8 +6,10 @@ actual pipeline wiring (Intent Router -> Glossary -> LLM Query Planner ->
 Repair Loop -> Postgres execution -> Result Analyzer). This script and
 slack/app.py are the two front-ends that share it.
 
-Requires ANTHROPIC_API_KEY. Not covered by the test suite (live LLM/DB
-calls) -- see tests/test_repair.py, tests/test_intent_router.py,
+Requires ANTHROPIC_API_KEY, loaded from a .env file in the project root if
+present (see .env.example) -- this avoids needing the key set in whatever
+shell happens to invoke this script. Not covered by the test suite (live
+LLM/DB calls) -- see tests/test_repair.py, tests/test_intent_router.py,
 tests/test_analyzer.py for the orchestration logic this wraps, tested with
 fake callables and hand-built inputs.
 """
@@ -18,6 +20,9 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent.parent / ".env")
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from joinplanner.sql_builder import SchemaCatalog  # noqa: E402

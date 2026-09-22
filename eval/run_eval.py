@@ -12,6 +12,9 @@ credentials); what it calls is: scoring.py (unit-tested,
 tests/test_scoring.py), the benchmark data (validated,
 tests/test_benchmark_integrity.py), and planner/repair.py's run_pipeline
 (unit-tested with fake LLM callables, tests/test_repair.py).
+
+Loads ANTHROPIC_API_KEY / DATABASE_URL from a .env file in the project root
+if present (see .env.example).
 """
 from __future__ import annotations
 
@@ -20,6 +23,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent.parent / ".env")
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).parent))
 
