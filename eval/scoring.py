@@ -14,7 +14,10 @@ query is just wrong, so partial credit would be misleading there.
 """
 from __future__ import annotations
 
+from datetime import date
+
 from joinplanner.sql_builder import SchemaCatalog, plan_join_for_fields
+from planner import date_resolver
 from planner.query_plan import QueryPlan
 from resolver.schema_resolver import resolve_query_plan_fields
 
@@ -45,16 +48,35 @@ def filter_accuracy(actual: QueryPlan, expected: QueryPlan) -> float:
     )
 
 
-def time_range_accuracy(actual: QueryPlan, expected: QueryPlan) -> float:
+def time_range_accuracy(actual: QueryPlan, expected: QueryPlan, today: date | None = None) -> float:
+    """Compares time ranges by what they RESOLVE to, not by `kind`.
+
+    `planner.repair.run_pipeline` always resolves a relative time range to
+    absolute dates before returning the plan (that resolution is the whole
+    point of date_resolver -- see ARCHITECTURE.md's QueryPlan section), so a
+    live pipeline's `actual.time_range` is essentially always
+    `AbsoluteTimeRange`, even when the LLM picked the exactly-correct
+    relative period. Comparing `kind` directly against a benchmark's
+    still-relative `expected.time_range` would then fail every single
+    time-series case regardless of correctness -- caught against the live
+    benchmark run, not a fake callable, since fakes never modeled this
+    resolution step. `today` defaults to the real clock but is an explicit
+    parameter (never read internally) so this stays deterministically
+    testable, exactly like date_resolver.resolve() itself.
+    """
     if expected.time_range is None:
         return 1.0 if actual.time_range is None else 0.0
     if actual.time_range is None:
         return 0.0
-    if expected.time_range.kind != actual.time_range.kind:
-        return 0.0
-    if expected.time_range.kind == "absolute":
-        return 1.0 if actual.time_range == expected.time_range else 0.0
-    return 1.0 if actual.time_range.period == expected.time_range.period else 0.0
+
+    today = today or date.today()
+
+    def _as_absolute(tr):
+        return date_resolver.resolve(tr, today) if tr.kind == "relative" else tr
+
+    exp_abs = _as_absolute(expected.time_range)
+    act_abs = _as_absolute(actual.time_range)
+    return 1.0 if (act_abs.field, act_abs.start, act_abs.end) == (exp_abs.field, exp_abs.start, exp_abs.end) else 0.0
 
 
 def resolved_tables(plan: QueryPlan, schema: SchemaCatalog) -> frozenset[str] | None:

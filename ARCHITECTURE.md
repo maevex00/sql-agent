@@ -559,24 +559,87 @@ first attempt with no repairs needed:
 - `"drop the orders table"` (unsupported/unsafe) → correctly classified `UNSUPPORTED` and
   declined before reaching the SQL pipeline at all.
 
-The full `eval/run_eval.py` benchmark run (all 60 cases, plus `execution_accuracy` once
-`DATABASE_URL` is live) had not yet been run as of this note -- see Project Status below for
-what that would take.
+### Full `eval/run_eval.py` runs (60 cases, no DATABASE_URL)
+
+```
+                              Run 1 (scoring bug)   Run 2 (fix applied)
+executable_sql_rate:         100.0%                 100.0%
+correct_join_path_rate:       90.0%                  90.0%
+metric_accuracy:              88.0%                  86.0%
+dimension_accuracy:           94.0%                  94.0%
+filter_accuracy:              100.0%                 100.0%
+time_range_accuracy:          72.0%  <- bug           92.0%  <- fixed
+execution_accuracy:           N/A                     N/A   (DATABASE_URL not set)
+unsafe_query_blocking_rate:   100.0%                 100.0%
+repair_success_rate:          100.0% (1/60 needed)    N/A (0/60 needed)
+```
+
+**A second real bug, found by the eval run itself, not by a live spot-check this time:**
+`time_range_accuracy` scored 72% on the first run despite every one of the 10 `time_series`
+cases visibly having the *correct* resolved dates when inspected by hand (verified: e.g.
+`"last month"` as of 2026-09-22 resolved to exactly Aug 1-31, matching
+`date_resolver`'s own unit-tested behavior). The scoring function itself was broken, not the
+pipeline: `run_pipeline` always resolves a relative time range to `AbsoluteTimeRange` before
+returning the plan (that resolution is the entire point of the Date Resolver -- LLM picks a
+period, code computes the date), but `eval/scoring.py::time_range_accuracy` compared
+`actual.time_range.kind` directly against `expected.time_range.kind`, and `expected` is
+written as `RelativeTimeRange` in every benchmark case. `actual` is essentially *always*
+`AbsoluteTimeRange` coming out of a live run, so this comparison could never pass, regardless
+of correctness. Fixed by resolving both sides to absolute dates before comparing (a pure,
+still fully unit-tested function -- `today` is an explicit parameter, never read from the
+clock internally, same discipline as `date_resolver.resolve()` itself). Rerunning after the
+fix: **92%.**
+
+**Remaining gap, diagnosed and NOT "fixed" by loosening ground truth to match outputs:**
+diagnosing the sub-100% scores on `metric_accuracy`, `dimension_accuracy`, and
+`correct_join_path_rate` case-by-case found real answers, not more scoring bugs -- and they
+split two ways:
+- **Mechanically equivalent alternate choices** the benchmark's ground truth was too narrow
+  to accept: `COUNT(order_item_id)` vs `COUNT(DISTINCT order_item_id)` on a primary-key
+  column (identical results, since a PK never repeats), and `COUNT(DISTINCT region_id)` vs
+  `COUNT(DISTINCT region_name)` (identical results given the schema's 1:1 name-to-id
+  mapping).
+- **Genuinely ambiguous question phrasing** where the LLM's reading is defensible, not wrong:
+  e.g. `"How many completed orders have..."` with a line-item-level filter -- does that mean
+  count matching *order line items*, or count distinct *orders* that contain a matching line
+  item? The benchmark picked one reading when writing ground truth; the model picked the
+  other. Similarly, `"stock quantity... across all warehouses"` was written expecting one
+  total but is genuinely re-readable as "broken down per warehouse," which is what the model
+  returned (arguably the more useful analytical answer).
+
+These are being left as an honestly-reported gap, not patched: the alternative -- editing
+ground truth after seeing what the model produced -- would make the benchmark score whatever
+the model happens to do, which defeats the point of having an independent eval. The
+diagnostic script used to find them was a throwaway (not added to the repo); the two
+categories of finding above are the artifact worth keeping.
+
+**Run-to-run variance, worth stating plainly for anyone citing this number later:** the two
+runs above also moved on `metric_accuracy` (88.0% -> 86.0%) and repair count (1/60 -> 0/60)
+with no code change between them, purely from LLM sampling variance -- small movement,
+expected, and a reminder that an LLM-backed pipeline's eval score is a sample from a
+distribution, not a fixed constant. Citing "the" number from a single run without that
+caveat overstates precision the measurement doesn't have.
 
 ## Project status
 
-All 10 phases are complete. Phases 0-7 and 9 are unit-tested end-to-end without any live LLM,
-database, or Slack credentials (122 tests). Phase 8 (Slack) is code-complete but explicitly
-flagged as unverified in this environment -- see its implementation notes above for exactly
-what that does and doesn't mean, and what verifying it would take.
+All 10 phases are complete and unit-tested (126 tests, no live LLM/database/Slack credentials
+needed to run them). **Live verification is done for the LLM-facing pipeline** (see "Live
+verification notes" above) and paid for itself twice over -- the first live run found and
+fixed a real bug in production code (the `query_plan` tool-call wrapping issue), and the
+first full eval run found and fixed a real bug in the eval harness itself (the
+`time_range_accuracy` scoring comparison). Neither was reachable by fake-callable unit
+testing, because both were properties of how the actual model responds to this actual schema
+and this actual scoring logic -- not of the orchestration code around them.
 
-**Update:** live verification is now underway (see "Live verification notes" above) and
-already paid for itself -- the very first live run found and fixed a real bug (the
-`query_plan` tool-call wrapping issue) that no amount of fake-callable unit testing could
-have caught, because it was a property of how the actual model responds to this actual
-schema, not of the orchestration logic around it. Remaining highest-value next steps, in
-order: run the full `eval/run_eval.py` benchmark (60 cases) to get real quantified numbers;
-bring up Postgres (`make setup`) to verify DB execution and `execution_accuracy`; connect a
-real Slack workspace to verify `src/slack/app.py`. Consistent with every phase so far, expect
-each of these to surface something specific that this document didn't anticipate -- that's
-the point of doing them.
+Quantified results (60-case benchmark, two runs, no Postgres): **100% executable SQL rate,
+100% unsafe-request blocking rate, 90% correct JOIN path rate, 86-88% metric accuracy, 94%
+dimension accuracy, 100% filter accuracy, 92% time-range accuracy** (post-fix), 0-1 repairs
+needed out of 60 cases. `execution_accuracy` is the one metric still unmeasured -- it needs a
+live Postgres.
+
+Remaining highest-value next steps: bring up Postgres (`make setup`) to measure
+`execution_accuracy` and confirm DB execution end-to-end; connect a real Slack workspace to
+verify `src/slack/app.py`, still the one completely unverified piece of the whole pipeline.
+Consistent with every phase so far, expect each to surface something specific this document
+didn't anticipate -- that has been true of literally every verification step taken so far,
+not a hedge.

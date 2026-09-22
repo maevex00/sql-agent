@@ -60,12 +60,35 @@ what broke, and how it was fixed — is in [ARCHITECTURE.md](ARCHITECTURE.md).
   could actually be verified in this environment; the Slack integration is flagged as
   code-complete-but-unverified rather than presented as tested.
 
+## Results
+
+Measured against the 60-case benchmark in `eval/`, live against Claude Sonnet 5 (no database —
+`execution_accuracy` untested):
+
+| Metric | Result |
+|---|---|
+| Executable SQL rate | **100%** |
+| Unsafe-request blocking rate | **100%** |
+| Correct JOIN path rate | 90% |
+| Filter accuracy | **100%** |
+| Dimension accuracy | 94% |
+| Metric accuracy | 86-88% (two runs) |
+| Time-range accuracy | 92% |
+| Repairs needed | 0-1 of 60 cases (two runs), all succeeded |
+
+Two real bugs were found and fixed by these live runs — one in the pipeline (Claude
+consistently wrapped its tool-call output in an extra key the schema didn't have), one in the
+eval harness itself (a scoring function compared an already-resolved absolute date against a
+still-relative expected value, understating time-range accuracy by 20 points). Full
+diagnosis, what was and wasn't "fixed" versus honestly left as a benchmark-ground-truth
+limitation, and the run-to-run variance caveat: [ARCHITECTURE.md](ARCHITECTURE.md#live-verification-notes-post-phase-10).
+
 ## Status
 
-All 9 planned pipeline phases are code-complete; only final polish remains. Phases 0-7 and 9
-are unit-tested (122 tests, `make test`, no database or API key required to run them).
-Phase 8 (Slack) is **honestly unverified** — this dev environment has no Slack app/workspace
-to test against.
+All 10 pipeline phases are code-complete and unit-tested (126 tests, `make test`, no database
+or API key required to run them). The LLM-facing pipeline has been live-verified end-to-end
+against a real Anthropic API key (see Results above). Two pieces remain unverified: Slack
+(no workspace in this dev environment) and `execution_accuracy` (no live database).
 
 | Stage | Module | Notes |
 |---|---|---|
