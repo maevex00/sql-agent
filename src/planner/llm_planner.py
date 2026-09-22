@@ -34,6 +34,9 @@ Rules:
   absolute dates; only use an absolute range if the user gave explicit dates.
 - For "metric-vs-metric" questions ("which regions missed their targets?"),
   use metric_comparisons, not a filter.
+- Pass metrics, dimensions, filters, etc. as TOP-LEVEL arguments to
+  submit_query_plan directly. Do not nest them under a "query_plan" key or
+  any other wrapper object.
 """
 
 
@@ -55,13 +58,39 @@ def build_system_prompt(glossary_text: str = "") -> str:
     return f"{SYSTEM_PROMPT}\n\nBusiness terminology and standard metric definitions:\n\n{glossary_text}"
 
 
+def _unwrap_single_key_plan(raw: dict[str, Any]) -> dict[str, Any]:
+    """Anthropic tool-use calls against this exact schema were empirically
+    found, against a live model, to sometimes nest the whole plan under one
+    extra key (e.g. `{"query_plan": {...}}`) instead of returning QueryPlan's
+    fields directly at the top level -- even though the tool's JSON schema
+    has them flat (verified: QueryPlan.model_json_schema()'s root
+    `properties` are `metrics`, `dimensions`, etc., no wrapper). Reproduced
+    consistently across independent calls (not a one-off, and not fixed by
+    the structural repair path re-asking with the same framing), so it's
+    handled deterministically here rather than left to the repair loop.
+    SYSTEM_PROMPT also explicitly forbids this now; this is defense in depth
+    for when a future prompt edit reintroduces the ambiguity.
+
+    Only unwraps when `raw` has no top-level "metrics" key (the one field
+    every valid plan must have) AND is a single-key dict whose one value is
+    itself a dict containing "metrics" -- narrow enough not to silently
+    accept arbitrarily-shaped junk.
+    """
+    if "metrics" in raw or len(raw) != 1:
+        return raw
+    ((_, only_value),) = raw.items()
+    if isinstance(only_value, dict) and "metrics" in only_value:
+        return only_value
+    return raw
+
+
 def parse_llm_output(raw_tool_input: dict[str, Any]) -> QueryPlan:
     """Pure function: raw tool-call JSON -> validated QueryPlan.
 
     Raises pydantic.ValidationError on structural problems -- caught by
     planner/repair.py's STRUCTURAL repair path, nowhere else.
     """
-    return QueryPlan.model_validate(raw_tool_input)
+    return QueryPlan.model_validate(_unwrap_single_key_plan(raw_tool_input))
 
 
 def plan_query(

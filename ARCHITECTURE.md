@@ -527,6 +527,42 @@ Phase 10 implementation notes:
 - No code changes to the pipeline itself in this phase, deliberately: Phase 10 was scoped as
   polish, not a ninth chance to add scope.
 
+## Live verification notes (post-Phase-10)
+
+The first real run against a live Anthropic API key surfaced exactly the kind of issue unit
+tests with fake callables structurally cannot catch: **Claude reliably wrapped its
+`submit_query_plan` tool call in an extra `{"query_plan": {...}}` layer**, instead of
+returning `QueryPlan`'s fields at the top level -- despite `QueryPlan.model_json_schema()`'s
+root `properties` being flat (`metrics`, `dimensions`, ... directly, no wrapper; verified by
+inspecting the actual schema sent). Reproduced across independent calls with no shared
+conversation history, so it wasn't a one-off sampling fluke, and the two structural-repair
+attempts in the first live test both failed the same way -- re-sending the Pydantic error
+message alone didn't tell the model *what* was wrong (it says "metrics: Field required," not
+"remove the query_plan wrapper"), so it kept making the same mistake.
+
+Fixed two ways, deliberately redundant:
+1. `SYSTEM_PROMPT` (`src/planner/llm_planner.py`) now explicitly says arguments must be
+   top-level, not nested under a wrapper key. Root-cause fix, but prompts can regress.
+2. `parse_llm_output` now runs `_unwrap_single_key_plan()` first: if the raw dict has no
+   top-level `metrics` key but is a single-key dict whose one value is itself a dict
+   containing `metrics`, it unwraps before validating. Narrow (won't silently accept
+   arbitrary junk) and deterministic, so the fix doesn't depend on the model consistently
+   listening to the prompt. Covered by tests/test_llm_planner.py.
+
+After the fix, three live spot-checks across different benchmark categories passed on the
+first attempt with no repairs needed:
+- `"revenue by region"` (multi-hop join) → correctly compiled a 4-table
+  `regions → customers → orders → order_items` JOIN chain, exactly the path the demo schema
+  was designed to require.
+- `"how many clients do we have"` (ambiguous terminology) → correctly resolved "clients" to
+  `COUNT(DISTINCT customer_id)`, matching the corresponding benchmark case (`at_06`).
+- `"drop the orders table"` (unsupported/unsafe) → correctly classified `UNSUPPORTED` and
+  declined before reaching the SQL pipeline at all.
+
+The full `eval/run_eval.py` benchmark run (all 60 cases, plus `execution_accuracy` once
+`DATABASE_URL` is live) had not yet been run as of this note -- see Project Status below for
+what that would take.
+
 ## Project status
 
 All 10 phases are complete. Phases 0-7 and 9 are unit-tested end-to-end without any live LLM,
@@ -534,11 +570,13 @@ database, or Slack credentials (122 tests). Phase 8 (Slack) is code-complete but
 flagged as unverified in this environment -- see its implementation notes above for exactly
 what that does and doesn't mean, and what verifying it would take.
 
-If this project is picked back up with real credentials available, the highest-value next
-step is **live verification**, not new features: run `eval/run_eval.py` against a real
-Anthropic key (and, for `execution_accuracy`, a seeded Postgres) to get the actual quantified
-numbers this design has been built to produce, and connect a real Slack workspace to confirm
-`src/slack/app.py` behaves as designed. Both would very likely surface a handful of real
-issues neither this document nor the test suite could catch without them -- consistent with
-every other phase in this project, where the issues that mattered were the ones testing
-actually found, not the ones anticipated in advance.
+**Update:** live verification is now underway (see "Live verification notes" above) and
+already paid for itself -- the very first live run found and fixed a real bug (the
+`query_plan` tool-call wrapping issue) that no amount of fake-callable unit testing could
+have caught, because it was a property of how the actual model responds to this actual
+schema, not of the orchestration logic around it. Remaining highest-value next steps, in
+order: run the full `eval/run_eval.py` benchmark (60 cases) to get real quantified numbers;
+bring up Postgres (`make setup`) to verify DB execution and `execution_accuracy`; connect a
+real Slack workspace to verify `src/slack/app.py`. Consistent with every phase so far, expect
+each of these to surface something specific that this document didn't anticipate -- that's
+the point of doing them.
