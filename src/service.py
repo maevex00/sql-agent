@@ -49,7 +49,7 @@ def _call_tool(client, system_prompt: str, user_content: str, model: str = "clau
     return tool_use.input
 
 
-def _make_llm_functions(schema: SchemaCatalog, glossary_text: str):
+def make_llm_functions(schema: SchemaCatalog, glossary_text: str):
     import anthropic
 
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
@@ -117,7 +117,7 @@ def answer_question(question: str, schema: SchemaCatalog, glossary_text: str) ->
     if classification.intent == "METRIC_DEFINITION":
         return AnswerOutcome(intent="METRIC_DEFINITION", text=answer_metric_definition(question, glossary_text))
 
-    planner_fn, structural_repair_fn, schema_resolution_repair_fn, semantic_replan_fn = _make_llm_functions(
+    planner_fn, structural_repair_fn, schema_resolution_repair_fn, semantic_replan_fn = make_llm_functions(
         schema, glossary_text
     )
     outcome = run_pipeline(

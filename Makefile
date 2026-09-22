@@ -14,7 +14,7 @@ eval:
 	python eval/run_eval.py
 
 run:
-	python -m src.slack.app
+	python src/slack/app.py
 
 down:
 	docker compose down -v

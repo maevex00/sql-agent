@@ -286,10 +286,11 @@ error, not retried.
 
 ## 6. Evaluation Harness
 
-`eval/benchmark.jsonl`: 80-100 questions labeled by category (`simple_aggregation`,
+`eval/benchmark.jsonl`: questions labeled by category (`simple_aggregation`,
 `multi_table_join`, `time_series`, `multi_filter`, `ambiguous_terminology`,
-`unsupported_unsafe`), each with a ground-truth `QueryPlan` shape and/or expected
-table set (not an expected exact SQL string — too brittle against equivalent rewrites).
+`unsupported_unsafe`), each with a ground-truth `QueryPlan` (not an expected exact SQL
+string — too brittle against equivalent rewrites). Originally targeted at 80-100 cases;
+shipped with 60 — see Phase 9 implementation notes below for why.
 
 Metrics (`eval/run_eval.py`):
 
@@ -348,8 +349,11 @@ sql-agent/
 │       ├── formatting.py         # pure Block Kit construction + mention stripping, tested
 │       └── app.py                # Bolt, Socket Mode -- live Slack wiring, unverified (see notes)
 ├── eval/
-│   ├── benchmark.jsonl
-│   └── run_eval.py
+│   ├── generate_benchmark.py     # builds benchmark.jsonl from typed QueryPlan objects
+│   ├── benchmark.jsonl           # generated, committed -- 60 cases across 6 categories
+│   ├── loader.py                 # BenchmarkCase model + JSONL loader
+│   ├── scoring.py                # pure scoring functions, no LLM/DB
+│   └── run_eval.py               # orchestrator: runs the benchmark live, prints the report
 ├── scripts/
 │   └── ask.py                    # CLI front-end for service.answer_question()
 └── tests/
@@ -370,7 +374,7 @@ sql-agent/
 | 6 | Intent Router + Glossary injection | | done |
 | 7 | Result Analyzer (metrics + chart + LLM summary) + Postgres execution layer | | done |
 | 8 | Slack Bolt / Socket Mode integration | demoable in Slack | code complete, unverified (no Slack credentials in dev environment) |
-| 9 | Eval harness, 80-100 benchmark questions, 5(+) metrics | quantified results | not started |
+| 9 | Eval harness, benchmark questions, 5(+) metrics | quantified results | done (60 cases, not 80-100 -- see notes) |
 | 10 | README polish, `docker compose up` one-command demo | portfolio-ready | not started |
 
 Phase 5 implementation notes:
@@ -467,6 +471,43 @@ Phase 8 implementation notes:
   concurrent question threads without them interleaving; a single thread does not remember
   earlier questions in it.
 
-**Current focus: Phase 9 onward.** No new IR fields, no new algorithms, no scope changes to
-the deterministic core going forward without an explicit new decision — extend by adding
-the next phase's module, not by reopening 0-8.
+Phase 9 implementation notes:
+
+- **Scope reduction from 80-100 cases to 60, stated plainly rather than padded.** Every
+  ground-truth case can be *structurally* verified against the real schema right now, with
+  no LLM or database: `tests/test_benchmark_integrity.py` resolves every field in every
+  `expected_plan` and confirms the join planner can actually connect them. But whether a
+  given *question's wording* actually elicits that ground truth needs a live LLM to check,
+  and `execution_accuracy` needs a live database on top of that — neither available in this
+  dev environment. Sixty cases that are all individually verified this way were judged more
+  honest than a larger set padded with content nothing here could check.
+- `eval/generate_benchmark.py` builds every case as a real `QueryPlan(...)` object, so
+  Pydantic validates its structure at *generation* time, not as a later surprise. The
+  generated `eval/benchmark.jsonl` is committed as a plain, diffable file — regenerate it by
+  rerunning the script after editing `CASES`, don't hand-edit the JSONL.
+- `eval/scoring.py`'s per-component accuracy functions (`metric_accuracy`,
+  `dimension_accuracy`, `filter_accuracy`) use Jaccard similarity (partial credit: asking for
+  "region and category" when only "region" was expected is a partial match). `correct_join_path`
+  deliberately does NOT use Jaccard -- a join missing one required table isn't "mostly
+  right," so it's exact set equality instead. Every one of these is pure and unit-tested with
+  hand-built `QueryPlan` pairs (tests/test_scoring.py), independent of the benchmark data or
+  any live call.
+- `execution_accuracy` does not compare against an independently hand-written reference SQL
+  string. It compiles the **ground-truth `QueryPlan`** through the exact same deterministic
+  compiler the actual answer went through, executes both, and compares result ROWS
+  (`scoring.rows_match`, order-independent). This is what the metric is actually supposed to
+  measure per ARCHITECTURE.md's original spec ("different SQL text can produce the same
+  correct result") — it needs an independently *correct ground-truth plan* (established by a
+  human when writing the benchmark), not an independently-styled SQL string, since the
+  compiler translating either plan is the same trusted, already-unit-tested code either way.
+- `unsafe_query_blocking_rate` in this project's eval measures the **Intent Router's**
+  ability to refuse to engage with unsafe-sounding requests (delete/drop/update requests,
+  prompt injection, off-topic). It does not measure the SQL Safety Layer, because the IR
+  structurally cannot express a mutation in the first place (`QueryPlan` has no DDL/DML
+  concept at all) — the guard's AST-level mutation denylist is separate, already-tested
+  defense-in-depth (`tests/test_guard.py`) for a different failure mode (a future bug in the
+  compiler itself), not something this benchmark category is positioned to exercise.
+
+**Current focus: Phase 10 (final polish) and, only if resumed, live verification of Phases 5-9
+against a real API key / database / Slack workspace.** No new IR fields, no new algorithms, no
+scope changes to the deterministic core going forward without an explicit new decision.

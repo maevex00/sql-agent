@@ -14,9 +14,10 @@ development, is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Status
 
-Phases 0-8 are code-complete. Phases 0-7 are unit-tested (97 tests, `make test`, no database
-or API key required to run them). Phase 8 (Slack) is **honestly unverified** — this dev
-environment has no Slack app/workspace to test against; see the caveat below.
+All 9 planned pipeline phases are code-complete (only Phase 10, final polish, remains).
+Phases 0-7 and 9 are unit-tested (122 tests, `make test`, no database or API key required to
+run them). Phase 8 (Slack) is **honestly unverified** — this dev environment has no Slack
+app/workspace to test against; see the caveat below.
 
 - [schema/correlation.json](schema/correlation.json) — 13-table demo schema (generic
   retail/e-commerce domain, not tied to any company), with intentional multi-hop chains and
@@ -60,8 +61,15 @@ environment has no Slack app/workspace to test against; see the caveat below.
   to Slack's `auth.test` endpoint just to construct the object, so there was no way to
   smoke-test it without a real bot token. See ARCHITECTURE.md's Phase 8 notes for what
   that means concretely and what's needed to actually run it.
+- [eval/](eval) — benchmark harness: 60 questions (not the originally-targeted 80-100, see
+  ARCHITECTURE.md's Phase 9 notes for why) across 6 categories, each a real, Pydantic-validated
+  `QueryPlan` as ground truth. `scoring.py`'s comparison functions are pure and unit-tested;
+  `tests/test_benchmark_integrity.py` verifies every ground-truth case actually resolves and
+  joins against the real schema, with no LLM needed. `run_eval.py` itself needs
+  `ANTHROPIC_API_KEY` (every case drives a live call) and, for `execution_accuracy`,
+  `DATABASE_URL`.
 
-Not yet built: Eval harness. See ARCHITECTURE.md's roadmap for phases 9-10.
+Only Phase 10 (final polish) remains. See ARCHITECTURE.md's roadmap.
 
 ## Quick start (deterministic core + repair-loop tests, no DB or API key needed)
 
@@ -92,6 +100,13 @@ Phase 8 notes.
 
 ```bash
 python src/slack/app.py
+```
+
+## Run the eval harness (requires an Anthropic API key; DATABASE_URL optional)
+
+```bash
+export ANTHROPIC_API_KEY=sk-...
+python eval/run_eval.py
 ```
 
 ## Full stack (requires Docker)
