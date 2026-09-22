@@ -1,7 +1,7 @@
 .PHONY: setup seed test eval run down
 
 setup:
-	docker compose up -d
+	docker compose up -d --wait
 	python data/seed.py
 
 seed:

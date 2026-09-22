@@ -375,7 +375,7 @@ sql-agent/
 | 7 | Result Analyzer (metrics + chart + LLM summary) + Postgres execution layer | | done |
 | 8 | Slack Bolt / Socket Mode integration | demoable in Slack | code complete, unverified (no Slack credentials in dev environment) |
 | 9 | Eval harness, benchmark questions, 5(+) metrics | quantified results | done (60 cases, not 80-100 -- see notes) |
-| 10 | README polish, `docker compose up` one-command demo | portfolio-ready | not started |
+| 10 | README polish, `docker compose up` one-command demo | portfolio-ready | done |
 
 Phase 5 implementation notes:
 
@@ -508,6 +508,35 @@ Phase 9 implementation notes:
   defense-in-depth (`tests/test_guard.py`) for a different failure mode (a future bug in the
   compiler itself), not something this benchmark category is positioned to exercise.
 
-**Current focus: Phase 10 (final polish) and, only if resumed, live verification of Phases 5-9
-against a real API key / database / Slack workspace.** No new IR fields, no new algorithms, no
-scope changes to the deterministic core going forward without an explicit new decision.
+Phase 10 implementation notes:
+
+- `LICENSE` (MIT) added.
+- `Makefile`'s `setup` target changed from `docker compose up -d` to `docker compose up -d
+  --wait`: the plain form returns as soon as the container *starts*, not once Postgres is
+  actually accepting connections, so `python data/seed.py` immediately after it was a real
+  race condition, not a hypothetical one -- `--wait` blocks on the compose file's existing
+  healthcheck (`pg_isready`) before returning.
+- `.gitignore` gained `output/` (the Result Analyzer's default chart directory) -- generated
+  content, not project state.
+- README rewritten to lead with the problem statement and a condensed architecture diagram
+  rather than a phase-by-phase changelog; the changelog-style detail (what broke, how tests
+  caught it) lives here, in ARCHITECTURE.md, where it belongs for anyone going deeper than a
+  skim.
+- No code changes to the pipeline itself in this phase, deliberately: Phase 10 was scoped as
+  polish, not a ninth chance to add scope.
+
+## Project status
+
+All 10 phases are complete. Phases 0-7 and 9 are unit-tested end-to-end without any live LLM,
+database, or Slack credentials (122 tests). Phase 8 (Slack) is code-complete but explicitly
+flagged as unverified in this environment -- see its implementation notes above for exactly
+what that does and doesn't mean, and what verifying it would take.
+
+If this project is picked back up with real credentials available, the highest-value next
+step is **live verification**, not new features: run `eval/run_eval.py` against a real
+Anthropic key (and, for `execution_accuracy`, a seeded Postgres) to get the actual quantified
+numbers this design has been built to produce, and connect a real Slack workspace to confirm
+`src/slack/app.py` behaves as designed. Both would very likely surface a handful of real
+issues neither this document nor the test suite could catch without them -- consistent with
+every other phase in this project, where the issues that mattered were the ones testing
+actually found, not the ones anticipated in advance.
